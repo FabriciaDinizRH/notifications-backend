@@ -31,13 +31,16 @@ import com.redhat.cloud.notifications.routers.models.Meta;
 import com.redhat.cloud.notifications.routers.models.RequestEmailSubscriptionProperties;
 import io.quarkus.logging.Log;
 import io.vertx.core.json.JsonObject;
+import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.enums.ParameterIn;
 import org.eclipse.microprofile.openapi.annotations.enums.SchemaType;
 import org.eclipse.microprofile.openapi.annotations.media.Content;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameters;
+import org.eclipse.microprofile.openapi.annotations.parameters.RequestBody;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponses;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 
 import javax.annotation.security.RolesAllowed;
@@ -126,6 +129,7 @@ public class EndpointResource {
     @GET
     @Produces(APPLICATION_JSON)
     @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_INTEGRATIONS_ENDPOINTS)
+    @Operation(summary = "List endpoints", description = "Get a list of endpoints filtered down by the passed parameters.")
     @Parameters({
         @Parameter(
                 name = "limit",
@@ -146,7 +150,6 @@ public class EndpointResource {
             @QueryParam("type") List<String> targetType,
             @QueryParam("active") Boolean activeOnly,
             @QueryParam("name") String name) {
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
 
         List<Endpoint> endpoints;
@@ -161,11 +164,11 @@ public class EndpointResource {
                 }
             }).collect(Collectors.toSet());
             endpoints = endpointRepository
-                    .getEndpointsPerCompositeType(accountId, orgId, name, compositeType, activeOnly, query);
-            count = endpointRepository.getEndpointsCountPerCompositeType(accountId, orgId, name, compositeType, activeOnly);
+                    .getEndpointsPerCompositeType(orgId, name, compositeType, activeOnly, query);
+            count = endpointRepository.getEndpointsCountPerCompositeType(orgId, name, compositeType, activeOnly);
         } else {
-            endpoints = endpointRepository.getEndpoints(accountId, orgId, name, query);
-            count = endpointRepository.getEndpointsCount(accountId, orgId, name);
+            endpoints = endpointRepository.getEndpoints(orgId, name, query);
+            count = endpointRepository.getEndpointsCount(orgId, name);
         }
 
         for (Endpoint endpoint: endpoints) {
@@ -183,9 +186,15 @@ public class EndpointResource {
     @POST
     @Consumes(APPLICATION_JSON)
     @Produces(APPLICATION_JSON)
+    @Operation(summary = "Create a new endpoint", description = "Create a new endpoint from the passed data")
+    @APIResponses(value = {
+        @APIResponse(responseCode = "200", content = @Content(mediaType = APPLICATION_JSON, schema = @Schema(implementation = Endpoint.class))),
+        @APIResponse(responseCode = "400", description = "Bad data passed, that does not correspond to the definition or Endpoint.properties are empty")
+    })
     @RolesAllowed(ConsoleIdentityProvider.RBAC_WRITE_INTEGRATIONS_ENDPOINTS)
     @Transactional
-    public Endpoint createEndpoint(@Context SecurityContext sec, @NotNull @Valid Endpoint endpoint) {
+    public Endpoint createEndpoint(@Context SecurityContext sec,
+                                   @RequestBody(required = true) @NotNull @Valid Endpoint endpoint) {
         checkSystemEndpoint(endpoint.getType());
         String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
@@ -228,13 +237,14 @@ public class EndpointResource {
     @Produces(APPLICATION_JSON)
     @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_INTEGRATIONS_ENDPOINTS)
     @Transactional
-    public Endpoint getOrCreateEmailSubscriptionEndpoint(@Context SecurityContext sec, @NotNull @Valid RequestEmailSubscriptionProperties requestProps) {
+    public Endpoint getOrCreateEmailSubscriptionEndpoint(@Context SecurityContext sec,
+                     @RequestBody(required = true) @NotNull @Valid RequestEmailSubscriptionProperties requestProps) {
         RhIdPrincipal principal = (RhIdPrincipal) sec.getUserPrincipal();
         String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
 
         if (requestProps.getGroupId() != null && requestProps.isOnlyAdmins()) {
-            throw new BadRequestException(String.format("Cannot use RBAC groups and only admins in the same endpoint"));
+            throw new BadRequestException("Cannot use RBAC groups and only admins in the same endpoint");
         }
 
         if (requestProps.getGroupId() != null) {
@@ -257,9 +267,8 @@ public class EndpointResource {
     @Produces(APPLICATION_JSON)
     @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_INTEGRATIONS_ENDPOINTS)
     public Endpoint getEndpoint(@Context SecurityContext sec, @PathParam("id") UUID id) {
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
-        Endpoint endpoint = endpointRepository.getEndpoint(accountId, orgId, id);
+        Endpoint endpoint = endpointRepository.getEndpoint(orgId, id);
         if (endpoint == null) {
             throw new NotFoundException();
         } else {
@@ -279,12 +288,11 @@ public class EndpointResource {
     @APIResponse(responseCode = "204", description = "The integration has been deleted", content = @Content(schema = @Schema(type = SchemaType.STRING)))
     @Transactional
     public Response deleteEndpoint(@Context SecurityContext sec, @PathParam("id") UUID id) {
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
-        EndpointType endpointType = endpointRepository.getEndpointTypeById(accountId, orgId, id);
+        EndpointType endpointType = endpointRepository.getEndpointTypeById(orgId, id);
         checkSystemEndpoint(endpointType);
 
-        Endpoint ep = endpointRepository.getEndpoint(accountId, orgId, id);
+        Endpoint ep = endpointRepository.getEndpoint(orgId, id);
         if (isForOpenBridge(ep)) {
 
             try {
@@ -298,7 +306,7 @@ public class EndpointResource {
                 Log.warn("Deletion of processor failed: ", ex);
             }
         }
-        endpointRepository.deleteEndpoint(accountId, orgId, id);
+        endpointRepository.deleteEndpoint(orgId, id);
 
         return Response.noContent().build();
     }
@@ -310,11 +318,10 @@ public class EndpointResource {
     @APIResponse(responseCode = "200", content = @Content(schema = @Schema(type = SchemaType.STRING)))
     @Transactional
     public Response enableEndpoint(@Context SecurityContext sec, @PathParam("id") UUID id) {
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
-        EndpointType endpointType = endpointRepository.getEndpointTypeById(accountId, orgId, id);
+        EndpointType endpointType = endpointRepository.getEndpointTypeById(orgId, id);
         checkSystemEndpoint(endpointType);
-        endpointRepository.enableEndpoint(accountId, orgId, id);
+        endpointRepository.enableEndpoint(orgId, id);
         return Response.ok().build();
     }
 
@@ -324,11 +331,10 @@ public class EndpointResource {
     @APIResponse(responseCode = "204", description = "The integration has been disabled", content = @Content(schema = @Schema(type = SchemaType.STRING)))
     @Transactional
     public Response disableEndpoint(@Context SecurityContext sec, @PathParam("id") UUID id) {
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
-        EndpointType endpointType = endpointRepository.getEndpointTypeById(accountId, orgId, id);
+        EndpointType endpointType = endpointRepository.getEndpointTypeById(orgId, id);
         checkSystemEndpoint(endpointType);
-        endpointRepository.disableEndpoint(accountId, orgId, id);
+        endpointRepository.disableEndpoint(orgId, id);
         return Response.noContent().build();
     }
 
@@ -339,7 +345,9 @@ public class EndpointResource {
     @RolesAllowed(ConsoleIdentityProvider.RBAC_WRITE_INTEGRATIONS_ENDPOINTS)
     @APIResponse(responseCode = "200", content = @Content(schema = @Schema(type = SchemaType.STRING)))
     @Transactional
-    public Response updateEndpoint(@Context SecurityContext sec, @PathParam("id") UUID id, @NotNull @Valid Endpoint endpoint) {
+    public Response updateEndpoint(@Context SecurityContext sec,
+                                   @PathParam("id") UUID id,
+                                   @RequestBody(required = true) @NotNull @Valid Endpoint endpoint) {
         // This prevents from updating an endpoint from whatever EndpointType to a system EndpointType
         checkSystemEndpoint(endpoint.getType());
         String accountId = getAccountId(sec);
@@ -348,11 +356,11 @@ public class EndpointResource {
         endpoint.setOrgId(orgId);
         endpoint.setId(id);
 
-        EndpointType endpointType = endpointRepository.getEndpointTypeById(accountId, orgId, id);
+        EndpointType endpointType = endpointRepository.getEndpointTypeById(orgId, id);
         // This prevents from updating an endpoint from system EndpointType to a whatever EndpointType
         checkSystemEndpoint(endpointType);
 
-        Endpoint ep = endpointRepository.getEndpoint(accountId, orgId, id);
+        Endpoint ep = endpointRepository.getEndpoint(orgId, id);
         if (isForOpenBridge(ep)) {
 
             // We need to save the processor name and id, as the incoming endpoint can't have them
@@ -470,10 +478,9 @@ public class EndpointResource {
     @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_INTEGRATIONS_ENDPOINTS)
     public List<NotificationHistory> getEndpointHistory(@Context SecurityContext sec, @PathParam("id") UUID id, @QueryParam("includeDetail") Boolean includeDetail, @BeanParam Query query) {
         // TODO We need globally limitations (Paging support and limits etc)
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
         boolean doDetail = includeDetail != null && includeDetail;
-        return notificationRepository.getNotificationHistory(accountId, orgId, id, doDetail, query);
+        return notificationRepository.getNotificationHistory(orgId, id, doDetail, query);
     }
 
     @GET
@@ -482,9 +489,8 @@ public class EndpointResource {
     @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_INTEGRATIONS_ENDPOINTS)
     @APIResponse(responseCode = "200", content = @Content(schema = @Schema(type = SchemaType.STRING)))
     public Response getDetailedEndpointHistory(@Context SecurityContext sec, @PathParam("id") UUID endpointId, @PathParam("history_id") UUID historyId) {
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
-        JsonObject json = notificationRepository.getNotificationDetails(accountId, orgId, endpointId, historyId);
+        JsonObject json = notificationRepository.getNotificationDetails(orgId, endpointId, historyId);
         if (json == null) {
             // Maybe 404 should only be returned if history_id matches nothing? Otherwise 204
             throw new NotFoundException();
@@ -532,7 +538,6 @@ public class EndpointResource {
             @Context SecurityContext sec, @PathParam("bundleName") String bundleName, @PathParam("applicationName") String applicationName,
             @PathParam("type") EmailSubscriptionType type) {
         RhIdPrincipal principal = (RhIdPrincipal) sec.getUserPrincipal();
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
 
         Application app = applicationRepository.getApplication(bundleName, applicationName);
@@ -540,7 +545,6 @@ public class EndpointResource {
             throw new NotFoundException();
         } else {
             return emailSubscriptionRepository.unsubscribe(
-                    accountId,
                     orgId,
                     principal.getName(),
                     bundleName,
@@ -591,7 +595,6 @@ public class EndpointResource {
 
         // Get a qute template. First ask for an account specific one. This will fall back to the default if needed.
         Optional<IntegrationTemplate> gTemplate = templateRepository.findIntegrationTemplate(null,
-                endpoint.getAccountId(),
                 endpoint.getOrgId(),
                 IntegrationTemplate.TemplateKind.ORG,
                 SLACK);

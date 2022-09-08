@@ -51,15 +51,11 @@ public class FeatureFlipper {
     @ConfigProperty(name = "notifications.kafka-consumed-total-checker.enabled", defaultValue = "false")
     boolean kafkaConsumedTotalCheckerEnabled;
 
-    @ConfigProperty(name = "notifications.use-org-id", defaultValue = "false")
-    boolean useOrgId;
+    @ConfigProperty(name = "notifications.use-default-template", defaultValue = "false")
+    boolean useDefaultTemplate;
 
-    @ConfigProperty(name = "notifications.events.use-org-id", defaultValue = "false")
-    boolean useOrgIdInEvents;
-
-    // TODO NOTIF-744 Remove this as soon as all onboarded apps include the org_id field in their Kafka messages.
-    @ConfigProperty(name = "notifications.translate-account-id-to-org-id", defaultValue = "false")
-    boolean translateAccountIdToOrgId;
+    @ConfigProperty(name = "notifications.use-templates-from-db", defaultValue = "false")
+    boolean useTemplatesFromDb;
 
     void logFeaturesStatusAtStartup(@Observes StartupEvent event) {
         Log.infof("=== %s startup status ===", FeatureFlipper.class.getSimpleName());
@@ -67,9 +63,8 @@ public class FeatureFlipper {
         Log.infof("The RHOSE (OpenBridge) integration is %s", obEnabled ? "enabled" : "disabled");
         Log.infof("The actions reinjection in case of Camel integration error is %s", enableReInject ? "enabled" : "disabled");
         Log.infof("The Kafka outage detector is %s", kafkaConsumedTotalCheckerEnabled ? "enabled" : "disabled");
-        Log.infof("The org ID migration is %s", useOrgId ? "enabled" : "disabled");
-        Log.infof("The org ID migration is %s in the events API", useOrgIdInEvents ? "enabled" : "disabled");
-        Log.infof("The account ID translation to org ID is %s", translateAccountIdToOrgId ? "enabled" : "disabled");
+        Log.infof("The use of default templates is %s", useDefaultTemplate ? "enabled" : "disabled");
+        Log.infof("The use of templates from database is %s", useTemplatesFromDb ? "enabled" : "disabled");
     }
 
     public boolean isEnforceBehaviorGroupNameUnicity() {
@@ -85,24 +80,6 @@ public class FeatureFlipper {
         this.obEnabled = obEnabled;
     }
 
-    public boolean isUseOrgId() {
-        return useOrgId;
-    }
-
-    public void setUseOrgId(boolean useOrgId) {
-        checkTestLaunchMode();
-        this.useOrgId = useOrgId;
-    }
-
-    public boolean isUseOrgIdInEvents() {
-        return useOrgIdInEvents;
-    }
-
-    public void setUseOrgIdInEvents(boolean useOrgIdInEvents) {
-        checkTestLaunchMode();
-        this.useOrgIdInEvents = useOrgIdInEvents;
-    }
-
     public boolean isEnableReInject() {
         return enableReInject;
     }
@@ -116,13 +93,22 @@ public class FeatureFlipper {
         this.kafkaConsumedTotalCheckerEnabled = kafkaConsumedTotalCheckerEnabled;
     }
 
-    public boolean isTranslateAccountIdToOrgId() {
-        return translateAccountIdToOrgId;
+    public boolean isUseDefaultTemplate() {
+        return useDefaultTemplate;
     }
 
-    public void setTranslateAccountIdToOrgId(boolean translateAccountIdToOrgId) {
+    public void setUseDefaultTemplate(boolean useDefaultTemplate) {
         checkTestLaunchMode();
-        this.translateAccountIdToOrgId = translateAccountIdToOrgId;
+        this.useDefaultTemplate = useDefaultTemplate;
+    }
+
+    public boolean isUseTemplatesFromDb() {
+        return useTemplatesFromDb;
+    }
+
+    public void setUseTemplatesFromDb(boolean useTemplatesFromDb) {
+        checkTestLaunchMode();
+        this.useTemplatesFromDb = useTemplatesFromDb;
     }
 
     /**

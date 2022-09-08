@@ -1,6 +1,7 @@
 package com.redhat.cloud.notifications.templates;
 
 import com.redhat.cloud.notifications.TestLifecycleManager;
+import com.redhat.cloud.notifications.config.FeatureFlipper;
 import com.redhat.cloud.notifications.db.ResourceHelpers;
 import com.redhat.cloud.notifications.db.StatelessSessionFactory;
 import com.redhat.cloud.notifications.db.repositories.TemplateRepository;
@@ -24,7 +25,6 @@ import java.util.UUID;
 
 import static com.redhat.cloud.notifications.Constants.API_INTERNAL;
 import static com.redhat.cloud.notifications.models.EmailSubscriptionType.DAILY;
-import static com.redhat.cloud.notifications.templates.TemplateService.USE_TEMPLATES_FROM_DB_KEY;
 import static io.restassured.RestAssured.given;
 import static io.restassured.http.ContentType.JSON;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,14 +49,17 @@ public class EmailTemplateMigrationServiceTest {
     @Inject
     StatelessSessionFactory statelessSessionFactory;
 
+    @Inject
+    FeatureFlipper featureFlipper;
+
     @BeforeEach
     void beforeEach() {
-        System.setProperty(USE_TEMPLATES_FROM_DB_KEY, "true");
+        featureFlipper.setUseTemplatesFromDb(true);
     }
 
     @AfterEach
     void afterEach() {
-        System.clearProperty(USE_TEMPLATES_FROM_DB_KEY);
+        featureFlipper.setUseTemplatesFromDb(false);
     }
 
     @Test
@@ -81,6 +84,9 @@ public class EmailTemplateMigrationServiceTest {
         Application edgeManagement = resourceHelpers.createApp(rhel.getId(), "edge-management");
         EventType imageCreation = resourceHelpers.createEventType(edgeManagement.getId(), "image-creation");
         EventType updateDevices = resourceHelpers.createEventType(edgeManagement.getId(), "update-devices");
+        // App: malware-detection
+        Application malwareDetection = resourceHelpers.createApp(rhel.getId(), "malware-detection");
+        EventType detectedMalware = resourceHelpers.createEventType(malwareDetection.getId(), "detected-malware");
         // App: patch
         Application patch = resourceHelpers.createApp(rhel.getId(), "patch");
         EventType newAdvisories = resourceHelpers.createEventType(patch.getId(), "new-advisory");
@@ -101,6 +107,15 @@ public class EmailTemplateMigrationServiceTest {
         // App: advisor
         Application advisorOpenshift = resourceHelpers.createApp(openshift.getId(), "advisor");
         EventType newRecommendationOpenshift = resourceHelpers.createEventType(advisorOpenshift.getId(), "new-recommendation");
+        // App: cost-management
+        Application costManagement = resourceHelpers.createApp(openshift.getId(), "cost-management");
+        EventType missingCostModel = resourceHelpers.createEventType(costManagement.getId(), "missing-cost-model");
+        EventType costModelCreate = resourceHelpers.createEventType(costManagement.getId(), "cost-model-create");
+        EventType costModelUpdate = resourceHelpers.createEventType(costManagement.getId(), "cost-model-update");
+        EventType costModelRemove = resourceHelpers.createEventType(costManagement.getId(), "cost-model-remove");
+        EventType operatorStale = resourceHelpers.createEventType(costManagement.getId(), "cm-operator-stale");
+        EventType operatorDataProcessed = resourceHelpers.createEventType(costManagement.getId(), "cm-operator-data-processed");
+        EventType operatorDataReceived = resourceHelpers.createEventType(costManagement.getId(), "cm-operator-data-received");
 
         /*
          * Bundle: application-services
@@ -178,6 +193,9 @@ public class EmailTemplateMigrationServiceTest {
             // App: edge-management
             findAndCompileInstantEmailTemplate(imageCreation.getId());
             findAndCompileInstantEmailTemplate(updateDevices.getId());
+            // App: malware-detection
+            findAndCompileInstantEmailTemplate(detectedMalware.getId());
+            assertTrue(templateRepository.findAggregationEmailTemplate(rhel.getName(), malwareDetection.getName(), DAILY).isEmpty());
             // App: patch
             findAndCompileInstantEmailTemplate(newAdvisories.getId());
             findAndCompileAggregationEmailTemplate(rhel.getName(), patch.getName(), DAILY);
@@ -197,6 +215,15 @@ public class EmailTemplateMigrationServiceTest {
             // App: advisor
             findAndCompileInstantEmailTemplate(newRecommendationOpenshift.getId());
             assertTrue(templateRepository.findAggregationEmailTemplate(openshift.getName(), advisorOpenshift.getName(), DAILY).isEmpty());
+            // App: cost-management
+            findAndCompileInstantEmailTemplate(missingCostModel.getId());
+            findAndCompileInstantEmailTemplate(costModelCreate.getId());
+            findAndCompileInstantEmailTemplate(costModelUpdate.getId());
+            findAndCompileInstantEmailTemplate(costModelRemove.getId());
+            findAndCompileInstantEmailTemplate(operatorStale.getId());
+            findAndCompileInstantEmailTemplate(operatorDataProcessed.getId());
+            findAndCompileInstantEmailTemplate(operatorDataReceived.getId());
+            assertTrue(templateRepository.findAggregationEmailTemplate(openshift.getName(), costManagement.getName(), DAILY).isEmpty());
 
             /*
              * Bundle: application-services

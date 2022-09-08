@@ -28,9 +28,6 @@ public class EmailAggregation extends CreationTimestamped {
 
     @NotNull
     @Size(max = 50)
-    private String accountId;
-
-    @Size(max = 50)
     private String orgId;
 
     @NotNull
@@ -55,14 +52,6 @@ public class EmailAggregation extends CreationTimestamped {
 
     public void setId(Integer id) {
         this.id = id;
-    }
-
-    public String getAccountId() {
-        return accountId;
-    }
-
-    public void setAccountId(String accountId) {
-        this.accountId = accountId;
     }
 
     public String getOrgId() {

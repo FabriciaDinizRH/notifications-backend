@@ -7,8 +7,10 @@ import com.redhat.cloud.notifications.db.repositories.ApplicationRepository;
 import com.redhat.cloud.notifications.db.repositories.BehaviorGroupRepository;
 import com.redhat.cloud.notifications.db.repositories.BundleRepository;
 import com.redhat.cloud.notifications.db.repositories.EndpointRepository;
+import com.redhat.cloud.notifications.models.Application;
 import com.redhat.cloud.notifications.models.BehaviorGroup;
 import com.redhat.cloud.notifications.models.BehaviorGroupAction;
+import com.redhat.cloud.notifications.models.Bundle;
 import com.redhat.cloud.notifications.models.EventType;
 import com.redhat.cloud.notifications.routers.models.Facet;
 import com.redhat.cloud.notifications.routers.models.Meta;
@@ -21,6 +23,8 @@ import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.enums.SchemaType;
 import org.eclipse.microprofile.openapi.annotations.media.Content;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
+import org.eclipse.microprofile.openapi.annotations.parameters.RequestBody;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponses;
 
@@ -34,6 +38,7 @@ import javax.ws.rs.BeanParam;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
+import javax.ws.rs.NotFoundException;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -71,14 +76,6 @@ public class NotificationResource {
     @Inject
     EndpointRepository endpointRepository;
 
-    @DELETE
-    @Path("/{id}")
-    @Produces(TEXT_PLAIN)
-    @APIResponse(responseCode = "204", description = "Notification has been marked as read", content = @Content(schema = @Schema(type = SchemaType.STRING)))
-    public Response markRead(@Context SecurityContext sec, @PathParam("id") Integer id) {
-        // Mark the notification id for <tenantId><userId> 's subscription as read
-        return null;
-    }
 
     @GET
     @Path("/eventTypes")
@@ -98,6 +95,56 @@ public class NotificationResource {
         );
     }
 
+    @GET
+    @Path("/bundles/{bundleName}")
+    @Produces(APPLICATION_JSON)
+    @Operation(summary = "Retrieve the bundle by name")
+    @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_NOTIFICATIONS)
+    public Bundle getBundleByName(@PathParam("bundleName") String bundleName) {
+        Bundle bundle = bundleRepository.getBundle(bundleName);
+        if (bundle == null) {
+            throw new NotFoundException();
+        }
+
+        return bundle;
+    }
+
+    @GET
+    @Path("/bundles/{bundleName}/applications/{applicationName}")
+    @Produces(APPLICATION_JSON)
+    @Operation(summary = "Retrieve the application by name of a given bundle name")
+    @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_NOTIFICATIONS)
+    public Application getApplicationByNameAndBundleName(
+            @PathParam("bundleName") String bundleName,
+            @PathParam("applicationName") String applicationName
+    ) {
+        Application application = applicationRepository.getApplication(bundleName, applicationName);
+        if (application == null) {
+            throw new NotFoundException();
+        }
+
+        return application;
+    }
+
+    @GET
+    @Path("/bundles/{bundleName}/applications/{applicationName}/eventTypes/{eventTypeName}")
+    @Produces(APPLICATION_JSON)
+    @Operation(summary = "Retrieve the event type by name of a given bundle name and application name")
+    @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_NOTIFICATIONS)
+    public EventType getEventTypesByNameAndBundleAndApplicationName(
+            @PathParam("bundleName") String bundleName,
+            @PathParam("applicationName") String applicationName,
+            @PathParam("eventTypeName") String eventTypeName
+    ) {
+        EventType eventType = applicationRepository.getEventType(bundleName, applicationName, eventTypeName);
+        if (eventType == null) {
+            throw new NotFoundException();
+        }
+
+        return eventType;
+    }
+
+
     /*
      * Called by the UI to build the behavior group removal confirmation screen.
      * That screen shows all the event types (and their application) that will be affected by the behavior group removal.
@@ -107,10 +154,10 @@ public class NotificationResource {
     @Produces(APPLICATION_JSON)
     @Operation(summary = "Retrieve the event types affected by the removal of a behavior group.")
     @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_NOTIFICATIONS)
-    public List<EventType> getEventTypesAffectedByRemovalOfBehaviorGroup(@Context SecurityContext sec, @PathParam("behaviorGroupId") UUID behaviorGroupId) {
-        String accountId = getAccountId(sec);
+    public List<EventType> getEventTypesAffectedByRemovalOfBehaviorGroup(@Context SecurityContext sec,
+                     @Parameter(description = "The UUID of the behavior group to check") @PathParam("behaviorGroupId") UUID behaviorGroupId) {
         String orgId = getOrgId(sec);
-        return behaviorGroupRepository.findEventTypesByBehaviorGroupId(accountId, orgId, behaviorGroupId);
+        return behaviorGroupRepository.findEventTypesByBehaviorGroupId(orgId, behaviorGroupId);
     }
 
     /*
@@ -123,9 +170,8 @@ public class NotificationResource {
     @Operation(summary = "Retrieve the behavior groups affected by the removal of an endpoint.")
     @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_NOTIFICATIONS)
     public List<BehaviorGroup> getBehaviorGroupsAffectedByRemovalOfEndpoint(@Context SecurityContext sec, @PathParam("endpointId") UUID endpointId) {
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
-        return behaviorGroupRepository.findBehaviorGroupsByEndpointId(accountId, orgId, endpointId);
+        return behaviorGroupRepository.findBehaviorGroupsByEndpointId(orgId, endpointId);
     }
 
     @GET
@@ -134,9 +180,8 @@ public class NotificationResource {
     @Operation(summary = "Retrieve the behavior groups linked to an event type.")
     @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_NOTIFICATIONS)
     public List<BehaviorGroup> getLinkedBehaviorGroups(@Context SecurityContext sec, @PathParam("eventTypeId") UUID eventTypeId, @BeanParam Query query) {
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
-        return behaviorGroupRepository.findBehaviorGroupsByEventTypeId(accountId, orgId, eventTypeId, query);
+        return behaviorGroupRepository.findBehaviorGroupsByEventTypeId(orgId, eventTypeId, query);
     }
 
     @GET
@@ -175,12 +220,13 @@ public class NotificationResource {
     @Consumes(APPLICATION_JSON)
     @Operation(summary = "Create a behavior group - assigning actions and linking to event types as requested")
     @APIResponses(value = {
-            @APIResponse(responseCode = "200", content = @Content(mediaType = APPLICATION_JSON, schema = @Schema(implementation = CreateBehaviorGroupResponse.class))),
-            @APIResponse(responseCode = "400", content = @Content(mediaType = TEXT_PLAIN, schema = @Schema(type = SchemaType.STRING)))
+        @APIResponse(responseCode = "200", content = @Content(mediaType = APPLICATION_JSON, schema = @Schema(implementation = CreateBehaviorGroupResponse.class))),
+        @APIResponse(responseCode = "400", content = @Content(mediaType = TEXT_PLAIN, schema = @Schema(type = SchemaType.STRING)), description = "Bad or no content passed.")
     })
     @RolesAllowed(ConsoleIdentityProvider.RBAC_WRITE_NOTIFICATIONS)
     @Transactional
-    public CreateBehaviorGroupResponse createBehaviorGroup(@Context SecurityContext sec, @Valid @NotNull CreateBehaviorGroupRequest request) {
+    public CreateBehaviorGroupResponse createBehaviorGroup(@Context SecurityContext sec,
+                              @RequestBody(required = true) @Valid @NotNull CreateBehaviorGroupRequest request) {
         String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
 
@@ -214,15 +260,18 @@ public class NotificationResource {
     @Path("/behaviorGroups/{id}")
     @Consumes(APPLICATION_JSON)
     @APIResponses(value = {
-            @APIResponse(responseCode = "200", content = @Content(mediaType = APPLICATION_JSON, schema = @Schema(type = SchemaType.BOOLEAN))),
-            @APIResponse(responseCode = "400", content = @Content(mediaType = TEXT_PLAIN, schema = @Schema(type = SchemaType.STRING))),
-            @APIResponse(responseCode = "404", content = @Content(mediaType = TEXT_PLAIN,  schema = @Schema(type = SchemaType.STRING)))
+        @APIResponse(responseCode = "200", content = @Content(mediaType = APPLICATION_JSON, schema = @Schema(type = SchemaType.BOOLEAN))),
+        @APIResponse(responseCode = "400", content = @Content(mediaType = TEXT_PLAIN, schema = @Schema(type = SchemaType.STRING)),
+                description = "Bad or no content passed."),
+        @APIResponse(responseCode = "404", content = @Content(mediaType = TEXT_PLAIN,  schema = @Schema(type = SchemaType.STRING)),
+                description = "No behavior group found with the passed id.")
     })
     @Operation(summary = "Update a behavior group.")
     @RolesAllowed(ConsoleIdentityProvider.RBAC_WRITE_NOTIFICATIONS)
     @Transactional
-    public Response updateBehaviorGroup(@Context SecurityContext sec, @PathParam("id") UUID id, @NotNull UpdateBehaviorGroupRequest request) {
-        String accountId = getAccountId(sec);
+    public Response updateBehaviorGroup(@Context SecurityContext sec,
+                                        @Parameter(description = "The UUID of the behavior group to update") @PathParam("id") UUID id,
+                                        @RequestBody(description = "New parameters", required = true) @NotNull UpdateBehaviorGroupRequest request) {
         String orgId = getOrgId(sec);
 
         if (request.displayName != null) {
@@ -230,17 +279,17 @@ public class NotificationResource {
             behaviorGroup.setId(id);
             behaviorGroup.setDisplayName(request.displayName);
 
-            if (!behaviorGroupRepository.update(accountId, orgId, behaviorGroup)) {
+            if (!behaviorGroupRepository.update(orgId, behaviorGroup)) {
                 return Response.status(200).type(APPLICATION_JSON).entity(false).build();
             }
         }
 
         if (request.endpointIds != null) {
-            behaviorGroupRepository.updateBehaviorGroupActions(accountId, orgId, id, request.endpointIds);
+            behaviorGroupRepository.updateBehaviorGroupActions(orgId, id, request.endpointIds);
         }
 
         if (request.eventTypeIds != null) {
-            behaviorGroupRepository.updateBehaviorEventTypes(accountId, orgId, id, request.eventTypeIds);
+            behaviorGroupRepository.updateBehaviorEventTypes(orgId, id, request.eventTypeIds);
         }
 
         return Response.status(200).type(APPLICATION_JSON).entity(true).build();
@@ -252,10 +301,10 @@ public class NotificationResource {
     @Operation(summary = "Delete a behavior group.")
     @RolesAllowed(ConsoleIdentityProvider.RBAC_WRITE_NOTIFICATIONS)
     @Transactional
-    public Boolean deleteBehaviorGroup(@Context SecurityContext sec, @PathParam("id") UUID behaviorGroupId) {
-        String accountId = getAccountId(sec);
+    public Boolean deleteBehaviorGroup(@Context SecurityContext sec,
+                                       @Parameter(description = "The UUID of the behavior group to delete") @PathParam("id") UUID behaviorGroupId) {
         String orgId = getOrgId(sec);
-        return behaviorGroupRepository.delete(accountId, orgId, behaviorGroupId);
+        return behaviorGroupRepository.delete(orgId, behaviorGroupId);
     }
 
     @PUT
@@ -266,7 +315,9 @@ public class NotificationResource {
     @RolesAllowed(ConsoleIdentityProvider.RBAC_WRITE_NOTIFICATIONS)
     @APIResponse(responseCode = "200", content = @Content(schema = @Schema(type = SchemaType.STRING)))
     @Transactional
-    public Response updateBehaviorGroupActions(@Context SecurityContext sec, @PathParam("behaviorGroupId") UUID behaviorGroupId, List<UUID> endpointIds) {
+    public Response updateBehaviorGroupActions(@Context SecurityContext sec,
+                       @Parameter(description = "The UUID of the behavior group to update") @PathParam("behaviorGroupId") UUID behaviorGroupId,
+                       @Parameter(description = "List of endpoint ids of the actions") List<UUID> endpointIds) {
         if (endpointIds == null) {
             throw new BadRequestException("The request body must contain a list (possibly empty) of endpoints identifiers");
         }
@@ -277,9 +328,8 @@ public class NotificationResource {
         if (endpointIds.size() != endpointIds.stream().distinct().count()) {
             throw new BadRequestException("The endpoints identifiers list should not contain duplicates");
         }
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
-        behaviorGroupRepository.updateBehaviorGroupActions(accountId, orgId, behaviorGroupId, endpointIds);
+        behaviorGroupRepository.updateBehaviorGroupActions(orgId, behaviorGroupId, endpointIds);
         return Response.ok().build();
     }
 
@@ -291,7 +341,9 @@ public class NotificationResource {
     @RolesAllowed(ConsoleIdentityProvider.RBAC_WRITE_NOTIFICATIONS)
     @APIResponse(responseCode = "200", content = @Content(schema = @Schema(type = SchemaType.STRING)))
     @Transactional
-    public Response updateEventTypeBehaviors(@Context SecurityContext sec, @PathParam("eventTypeId") UUID eventTypeId, Set<UUID> behaviorGroupIds) {
+    public Response updateEventTypeBehaviors(@Context SecurityContext sec,
+                         @Parameter(description = "UUID of the eventType to associate with the behavior group(s)") @PathParam("eventTypeId") UUID eventTypeId,
+                         @Parameter(description = "Set of behavior group ids to associate") Set<UUID> behaviorGroupIds) {
         if (behaviorGroupIds == null) {
             throw new BadRequestException("The request body must contain a list (possibly empty) of behavior groups identifiers");
         }
@@ -299,9 +351,8 @@ public class NotificationResource {
         if (behaviorGroupIds.contains(null)) {
             throw new BadRequestException("The behavior groups identifiers list should not contain empty values");
         }
-        String accountId = getAccountId(sec);
         String orgId = getOrgId(sec);
-        behaviorGroupRepository.updateEventTypeBehaviors(accountId, orgId, eventTypeId, behaviorGroupIds);
+        behaviorGroupRepository.updateEventTypeBehaviors(orgId, eventTypeId, behaviorGroupIds);
         return Response.ok().build();
     }
 
@@ -310,10 +361,10 @@ public class NotificationResource {
     @Produces(APPLICATION_JSON)
     @Operation(summary = "Retrieve the behavior groups of a bundle.")
     @RolesAllowed(ConsoleIdentityProvider.RBAC_READ_NOTIFICATIONS)
-    public List<BehaviorGroup> findBehaviorGroupsByBundleId(@Context SecurityContext sec, @PathParam("bundleId") UUID bundleId) {
-        String accountId = getAccountId(sec);
+    public List<BehaviorGroup> findBehaviorGroupsByBundleId(@Context SecurityContext sec,
+                @Parameter(description = "UUID of the bundle to retrieve the behavior groups for.") @PathParam("bundleId") UUID bundleId) {
         String orgId = getOrgId(sec);
-        List<BehaviorGroup> behaviorGroups = behaviorGroupRepository.findByBundleId(accountId, orgId, bundleId);
+        List<BehaviorGroup> behaviorGroups = behaviorGroupRepository.findByBundleId(orgId, bundleId);
         endpointRepository.loadProperties(
                 behaviorGroups
                         .stream()
